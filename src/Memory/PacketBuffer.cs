@@ -1,4 +1,5 @@
 using System;
+using System.Data;
 using System.IO;
 using System.Runtime.InteropServices;
 
@@ -24,6 +25,7 @@ namespace IxyCs.Memory
         == 64 bytes
          */
         private readonly ulong _baseAddress;
+        private readonly ulong _start;
 
         /// <summary>
         /// The virtual address of the actual Packet Buffer that this object wraps
@@ -61,6 +63,7 @@ namespace IxyCs.Memory
         public PacketBuffer(ulong baseAddr)
         {
             this._baseAddress = baseAddr;
+            this._start = baseAddr + DataOffset;
         }
 
         /// <summary>
@@ -68,7 +71,7 @@ namespace IxyCs.Memory
         /// </summary>
         public unsafe void Touch()
         {
-            ((byte*)(_baseAddress + DataOffset + 1))[0]++;
+            ((byte*)(_start + 1))[0]++;
         }
 
         //Sacrificing some code compactness for a nicer API
@@ -77,7 +80,7 @@ namespace IxyCs.Memory
         /// </summary>
         public unsafe void WriteData(uint offset, int val)
         {
-            int* ptr = (int*)(_baseAddress + DataOffset + offset);
+            int* ptr = (int*)(_start + offset);
             *ptr = val;
         }
 
@@ -86,7 +89,7 @@ namespace IxyCs.Memory
         /// </summary>
         public unsafe void WriteData(uint offset, short val)
         {
-            short* ptr = (short*)(_baseAddress + DataOffset + offset);
+            short* ptr = (short*)(_start + offset);
             *ptr = val;
         }
 
@@ -95,7 +98,7 @@ namespace IxyCs.Memory
         /// </summary>
         public unsafe void WriteData(uint offset, IntPtr val)
         {
-            IntPtr* ptr = (IntPtr*)(_baseAddress + DataOffset + offset);
+            IntPtr* ptr = (IntPtr*)(_start + offset);
             *ptr = val;
         }
 
@@ -104,7 +107,7 @@ namespace IxyCs.Memory
         /// </summary>
         public unsafe void WriteData(uint offset, long val)
         {
-            long* ptr = (long*)(_baseAddress + DataOffset + offset);
+            long* ptr = (long*)(_start + offset);
             *ptr = val;
         }
 
@@ -113,16 +116,16 @@ namespace IxyCs.Memory
         /// </summary>
         public unsafe void WriteData(uint offset, byte val)
         {
-            byte* ptr = (byte*)(_baseAddress + DataOffset + offset);
+            byte* ptr = (byte*)(_start + offset);
             *ptr = val;
         }
 
         /// <summary>
         /// Writes the value to the data segment of this buffer with the given offset (to which DataOffset is added)
         /// </summary>
-        public unsafe void WriteData(uint offset, Span<byte> val)
+        public unsafe void WriteData(uint offset, ReadOnlySpan<byte> val)
         {
-            byte* targetPtr = (byte*)(_baseAddress + DataOffset + offset);
+            byte* targetPtr = (byte*)(_start + offset);
             
             val.CopyTo(new Span<byte>(targetPtr, int.MaxValue));
         }
@@ -132,7 +135,7 @@ namespace IxyCs.Memory
         /// </summary>
         public unsafe byte GetDataByte(uint i)
         {
-            byte* b = (byte*)(_baseAddress + DataOffset + i);
+            byte* b = (byte*)(_start + i);
             return *b;
         }
 
@@ -142,24 +145,17 @@ namespace IxyCs.Memory
         /// </summary>
         public byte[] CopyData()
         {
-            return CopyData(0, (uint)Size);
+            var buffer = new byte[Size];
+            CopyData(buffer);
+            return buffer;
         }
 
-        public void CopyData(Span<byte> buffer)
+        public void CopyData(Span<byte> buffer, uint offset = 0, uint length = 0)
         {
-
+            ReadOnlySpan<byte> source = Data.Slice((int)offset, (int)length);
+            source.CopyTo(buffer);
         }
 
-        public unsafe byte[] CopyData(uint offset, uint length)
-        {
-            var cpy = new byte[length];
-
-            var source = new Span<byte>((void*)(_baseAddress + DataOffset + offset), (int)length);
-            source.CopyTo(cpy);
-
-            return cpy;
-        }
-
-        public unsafe ReadOnlySpan<byte> Data => new ReadOnlySpan<byte>((void*)(_baseAddress + DataOffset), (int)Size);
+        public unsafe ReadOnlySpan<byte> Data => new ReadOnlySpan<byte>((void*)(_start), (int)Size);
     }
 }

@@ -25,9 +25,7 @@ namespace IxyCs.Demo
             var dev1 = new IxgbeDevice(pci1, 1, 1);
             var dev2 = new IxgbeDevice(pci2, 1, 1);
 
-            // TODO: switch to C# 7.3 and replace with Span<PacketBuffer> buffers = stackalloc PacketBuffer[BatchSize];
-            var buffersArray = stackalloc PacketBuffer[BatchSize];
-            var buffers = new Span<PacketBuffer>(buffersArray, BatchSize);
+            Span<PacketBuffer> buffers = stackalloc PacketBuffer[BatchSize];
 
             ulong counter = 0;
             var stopWatch = new Stopwatch();
@@ -76,7 +74,7 @@ namespace IxyCs.Demo
                     buffer.Touch();
 
                 var txBuffCount = txDev.TxBatch(txQueue, rxBuffers);
-                _mempool = (_mempool == null) ? Mempool.FindPool(rxBuffers[0].MempoolId) : _mempool;
+                _mempool = (_mempool.IsDefault) ? Mempool.FindPool(rxBuffers[0].MempoolId).Value : _mempool;
 
                 //Drop unsent packets
                 foreach (var buffer in rxBuffers.Slice(txBuffCount))

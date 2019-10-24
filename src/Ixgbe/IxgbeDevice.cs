@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO.MemoryMappedFiles;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Threading;
 using IxyCs.Memory;
@@ -330,7 +331,7 @@ namespace IxyCs.Ixgbe
 
         }
 
-        private void InitRx()
+        private unsafe void InitRx()
         {
             //Disable RX while re-configuring
             ClearFlags(IxgbeDefs.RXCTRL, IxgbeDefs.RXCTRL_RXEN);
@@ -361,7 +362,11 @@ namespace IxyCs.Ixgbe
                 //Sec 7.1.9 - Set up descriptor ring
                 int ringSizeBytes = NumRxQueueEntries * RxDescriptorSize;
                 var dmaMem = MemoryHelper.AllocateDmaC((uint)ringSizeBytes, true);
-                //TODO : The C version sets the allocated memory to -1 here
+
+
+#if DEBUG
+                Unsafe.InitBlock((void*)dmaMem.VirtualAddress, byte.MaxValue, (uint)ringSizeBytes);
+#endif
 
                 SetReg(IxgbeDefs.RDBAL(i), (uint)(dmaMem.PhysicalAddress & 0xFFFFFFFFL));
                 SetReg(IxgbeDefs.RDBAH(i), (uint)(dmaMem.PhysicalAddress >> 32));
@@ -389,7 +394,7 @@ namespace IxyCs.Ixgbe
         }
 
         //Section 4.6.8
-        private void InitTx()
+        private unsafe void InitTx()
         {
             //CRC offload and small packet padding
             SetFlags(IxgbeDefs.HLREG0, IxgbeDefs.HLREG0_TXCRCEN | IxgbeDefs.HLREG0_TXPADEN);
@@ -411,7 +416,9 @@ namespace IxyCs.Ixgbe
                 //Section 7.1.9 - Setup descriptor ring
                 uint ringSizeBytes = NumTxQueueEntries * TxDescriptorSize;
                 var dmaMem = MemoryHelper.AllocateDmaC(ringSizeBytes, true);
-                //TODO : The C version sets the allocated memory to -1 here
+#if DEBUG
+                Unsafe.InitBlock((void*)dmaMem.VirtualAddress, byte.MaxValue, (uint)ringSizeBytes);
+#endif
                 SetReg(IxgbeDefs.TDBAL(i), (uint)(dmaMem.PhysicalAddress & 0xFFFFFFFFL));
                 SetReg(IxgbeDefs.TDBAH(i), (uint)(dmaMem.PhysicalAddress >> 32));
                 SetReg(IxgbeDefs.TDLEN(i), (uint)ringSizeBytes);

@@ -13,7 +13,7 @@ namespace IxyCs.Demo
         private const int PacketSize = 60;
         private const int BatchSize = 64;
 
-        private readonly byte[] PacketData = new byte[] {
+        private ReadOnlySpan<byte> PacketData => new byte[] {
             0x01, 0x02, 0x03, 0x04, 0x05, 0x06, //dst MAC
             0x11, 0x12, 0x13, 0x14, 0x15, 0x16, //src MAC
             0x08, 0x00, //ether type: IPv4
@@ -40,9 +40,7 @@ namespace IxyCs.Demo
 
             var dev = new IxgbeDevice(pciAddr, 1, 1);
 
-            // TODO: switch to C# 7.3 and replace with Span<PacketBuffer> buffers = stackalloc PacketBuffer[BatchSize];
-            var buffersArray = stackalloc PacketBuffer[BatchSize];
-            var buffers = new Span<PacketBuffer>(buffersArray, BatchSize);
+            Span<PacketBuffer> buffers = stackalloc PacketBuffer[BatchSize];
 
             var statsOld = new DeviceStats(dev);
             var statsNew = new DeviceStats(dev);
@@ -96,19 +94,14 @@ namespace IxyCs.Demo
 
         private ushort CalcIpChecksum(ReadOnlySpan<byte> data)
         {
-            if(data.Length % 2 != 0)
-            {
-                Log.Error("Odd sized checksums NYI");
-                Environment.Exit(1);
-            }
             uint checksum = 0;
-            for(int i = 0; i < data.Length / 2; i++)
+            for(int i = 0; i < 10; i++)
             {
                 checksum += data[i];
                 if(checksum > 0xFFFF)
                     checksum = (checksum & 0xFFFF) + 1; //16 bit one's complement
             }
-            return (ushort)(~((ushort)checksum));
+            return (ushort)~checksum;
         }
     }
 }
