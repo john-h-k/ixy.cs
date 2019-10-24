@@ -2,7 +2,7 @@ using System;
 
 namespace IxyCs.Ixgbe
 {
-    public class IxgbeTxQueue : IxyQueue
+    public sealed class IxgbeTxQueue : IxyQueue
     {
         public const uint DescriptorSize = 16;
 

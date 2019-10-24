@@ -2,7 +2,7 @@ using System;
 
 namespace IxyCs.Memory
 {
-    public class DmaMemory
+    public readonly struct DmaMemory
     {
         public readonly ulong VirtualAddress, PhysicalAddress;
 

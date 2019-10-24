@@ -20,14 +20,12 @@ namespace IxyCs.Ixgbe
         private const int TxCleanBatch = 32;
 
         public IxgbeDevice(string pciAddr, int rxQueues, int txQueues)
-            :base(pciAddr, rxQueues, txQueues)
+            : base(pciAddr, rxQueues, txQueues)
         {
-            if(txQueues < 0 || txQueues > MaxQueues)
-                throw new ArgumentException(String.Format("Cannot configure {0} tx queues - limit is {1}",
-                 txQueues, MaxQueues));
-            if(rxQueues < 0 || rxQueues > MaxQueues)
-                throw new ArgumentException(String.Format("Cannot configure {0} rx queues - limit is {1}",
-                 rxQueues, MaxQueues));
+            if (txQueues < 0 || txQueues > MaxQueues)
+                throw new ArgumentException($"Cannot configure {txQueues} tx queues - limit is {MaxQueues}");
+            if (rxQueues < 0 || rxQueues > MaxQueues)
+                throw new ArgumentException($"Cannot configure {rxQueues} rx queues - limit is {MaxQueues}");
 
             DriverName = "ixy-ixgbe";
 
@@ -41,7 +39,7 @@ namespace IxyCs.Ixgbe
                 //View accessor for mmapped file is automatically created
                 PciMemMap = PciController.MapResource(pciAddr);
             }
-            catch(Exception e)
+            catch (Exception e)
             {
                 Log.Error("FATAL: Could not map memory for device {0} - {1}", pciAddr, e.Message);
                 Environment.Exit(1);
@@ -53,10 +51,10 @@ namespace IxyCs.Ixgbe
         public override uint GetLinkSpeed()
         {
             uint links = GetReg(IxgbeDefs.LINKS);
-            if((links & IxgbeDefs.LINKS_UP) == 0)
+            if ((links & IxgbeDefs.LINKS_UP) == 0)
                 return 0;
 
-            switch(links & IxgbeDefs.LINKS_SPEED_82599)
+            switch (links & IxgbeDefs.LINKS_SPEED_82599)
             {
                 case IxgbeDefs.LINKS_SPEED_100_82599:
                     return 100;
@@ -72,7 +70,7 @@ namespace IxyCs.Ixgbe
 
         public override void SetPromisc(bool enabled)
         {
-            if(enabled)
+            if (enabled)
             {
                 Log.Notice("Enabling promisc mode");
                 SetFlags(IxgbeDefs.FCTRL, IxgbeDefs.FCTRL_MPE | IxgbeDefs.FCTRL_UPE);
@@ -103,33 +101,32 @@ namespace IxyCs.Ixgbe
         //We control the tail of the queue, hardware controls the head
         public override int RxBatch(int queueId, Span<PacketBuffer> buffers)
         {
-            if(queueId < 0 || queueId >= RxQueues.Length)
-                throw new ArgumentOutOfRangeException("Queue id out of bounds");
-
-            var queue = RxQueues[queueId] as IxgbeRxQueue;
+            var queue = RxQueues[queueId];
             ushort rxIndex = (ushort)queue.Index;
             ushort lastRxIndex = rxIndex;
             int bufInd;
-            for(bufInd = 0; bufInd < buffers.Length; bufInd++)
+            for (bufInd = 0; bufInd < buffers.Length; bufInd++)
             {
                 var descAddr = queue.GetDescriptorAddress(rxIndex);
                 var status = queue.ReadWbStatusError(descAddr);
                 //Status DONE
-                if((status & IxgbeDefs.RXDADV_STAT_DD) != 0)
+                if ((status & IxgbeDefs.RXDADV_STAT_DD) != 0)
                 {
                     //Status END OF PACKET
-                    if((status & IxgbeDefs.RXDADV_STAT_EOP) == 0)
-                        throw new InvalidOperationException("Multi segment packets are not supported - increase buffer size or decrease MTU");
+                    if ((status & IxgbeDefs.RXDADV_STAT_EOP) == 0)
+                        ThrowHelper.ThrowInvalidOperationException("Multi segment packets are not supported - increase buffer size or decrease MTU");
 
                     //We got a packet - read and copy the whole descriptor
-                    var packetBuffer = new PacketBuffer(queue.VirtualAddresses[rxIndex]);
+                    var packetBuffer = new PacketBuffer(queue.VirtualAddresses[rxIndex])
+                    {
+                        Size = queue.ReadWbLength(descAddr)
+                    };
 
-                    packetBuffer.Size = queue.ReadWbLength(descAddr);
 
                     //This would be the place to implement RX offloading by translating the device-specific
                     //flags to an independent representation in that buffer (similar to how DPDK works)
                     var newBuf = queue.Mempool.GetPacketBufferFast();
-                    if(newBuf.IsNull)
+                    if (newBuf.IsNull)
                     {
                         Log.Error("Cannot allocate RX buffer - Out of memory! Either there is a memory leak, or the mempool is too small");
                         throw new OutOfMemoryException("Failed to allocate new buffer for rx - you are either leaking memory or your mempool is too small");
@@ -144,10 +141,13 @@ namespace IxyCs.Ixgbe
                     lastRxIndex = rxIndex;
                     rxIndex = WrapRing(rxIndex, (ushort)queue.EntriesCount);
                 }
-                else {break;}
+                else
+                {
+                    break;
+                }
             }
 
-            if(rxIndex != lastRxIndex)
+            if (rxIndex != lastRxIndex)
             {
                 //Tell hardware that we are done. This is intentionally off by one, otherwise we'd set
                 //RDT=RDH if we are receiving faster than packets are coming in, which would mean queue is full
@@ -160,53 +160,49 @@ namespace IxyCs.Ixgbe
 
         public override int TxBatch(int queueId, Span<PacketBuffer> buffers)
         {
-            if(queueId < 0 || queueId >= RxQueues.Length)
-                throw new ArgumentOutOfRangeException("Queue id out of bounds");
-
-            var queue = TxQueues[queueId] as IxgbeTxQueue;
+            var queue = TxQueues[queueId];
             ushort cleanIndex = queue.CleanIndex;
             ushort currentIndex = (ushort)queue.Index;
             var cmdTypeFlags = IxgbeDefs.ADVTXD_DCMD_EOP | IxgbeDefs.ADVTXD_DCMD_RS | IxgbeDefs.ADVTXD_DCMD_IFCS |
                                         IxgbeDefs.ADVTXD_DCMD_DEXT | IxgbeDefs.ADVTXD_DTYP_DATA;
             //All packet buffers that will be handled here will belong to the same mempool
-            Mempool pool = null;
+            Mempool pool = default;
 
             //Step 1: Clean up descriptors that were sent out by the hardware and return them to the mempool
             //Start by reading step 2 which is done first for each packet
             //Cleaning up must be done in batches for performance reasons, so this is unfortunately somewhat complicated
-            while(true)
+            while (true)
             {
                 //currentIndex is always ahead of clean (invariant of our queue)
                 int cleanable = currentIndex - cleanIndex;
-                if(cleanable < 0)
+                if (cleanable < 0)
                     cleanable = queue.EntriesCount + cleanable;
-                if(cleanable < TxCleanBatch)
+                if (cleanable < TxCleanBatch)
                     break;
 
                 //Calculate the index of the last transcriptor in the clean batch
                 //We can't check all descriptors for performance reasons
                 int cleanupTo = cleanIndex + TxCleanBatch - 1;
-                if(cleanupTo >= queue.EntriesCount)
+                if (cleanupTo >= queue.EntriesCount)
                     cleanupTo -= queue.EntriesCount;
 
                 var descAddr = queue.GetDescriptorAddress((ushort)cleanupTo);
                 uint status = queue.ReadWbStatus(descAddr);
 
                 //Hardware sets this flag as soon as it's sent out, we can give back all bufs in the batch back to the mempool
-                if((status & IxgbeDefs.ADVTXD_STAT_DD) != 0)
+                if ((status & IxgbeDefs.ADVTXD_STAT_DD) != 0)
                 {
                     int i = cleanIndex;
-                    while(true)
+                    while (true)
                     {
                         var packetBuffer = new PacketBuffer(queue.VirtualAddresses[i]);
-                        if(pool == null)
+                        if (pool.IsDefault)
                         {
-                            pool = Mempool.FindPool(packetBuffer.MempoolId);
-                            if(pool == null)
-                                throw new NullReferenceException("Could not find mempool with id specified by PacketBuffer");
+                            // apparently we want an NRE here
+                            pool = Mempool.FindPool(packetBuffer.MempoolId).Value;
                         }
                         pool.FreeBufferFast(packetBuffer);
-                        if(i == cleanupTo)
+                        if (i == cleanupTo)
                             break;
                         i = WrapRing(i, queue.EntriesCount);
                     }
@@ -215,18 +211,22 @@ namespace IxyCs.Ixgbe
                 }
                 //Clean the whole batch or nothing. This will leave some packets in the queue forever
                 //if you stop transmitting but that's not a real concern
-                else {break;}
+                else
+                {
+                    break; 
+
+                }
             }
             queue.CleanIndex = cleanIndex;
 
             //Step 2: Send out as many of our packets as possible
             int sent;
-            for(sent = 0; sent < buffers.Length; sent++)
+            for (sent = 0; sent < buffers.Length; sent++)
             {
                 var descAddr = queue.GetDescriptorAddress(currentIndex);
                 ushort nextIndex = WrapRing(currentIndex, (ushort)queue.EntriesCount);
                 //We are full if the next index is the one we are trying to reclaim
-                if(cleanIndex == nextIndex)
+                if (cleanIndex == nextIndex)
                     break;
 
                 var buffer = buffers[sent];
@@ -290,9 +290,9 @@ namespace IxyCs.Ixgbe
             InitTx();
 
             //Start each Rx/Tx queue
-            for(int i = 0; i < RxQueues.Length; i++)
+            for (int i = 0; i < RxQueues.Length; i++)
                 StartRxQueue(i);
-            for(int i= 0; i < TxQueues.Length; i++)
+            for (int i = 0; i < TxQueues.Length; i++)
                 StartTxQueue(i);
 
             //Skipping last step from 4.6.3
@@ -318,12 +318,12 @@ namespace IxyCs.Ixgbe
             int waited = 0;
             uint speed;
             //Wait up to 10 seconds for link (GetLinkSpeed returns 0 until link is established)
-            while((speed = GetLinkSpeed()) == 0 && waited < 10000)
+            while ((speed = GetLinkSpeed()) == 0 && waited < 10000)
             {
                 Thread.Sleep(10);
                 waited += 10;
             }
-            if(speed != 0)
+            if (speed != 0)
                 Log.Notice("Link established - speed is {0} Mbit/s", speed);
             else
                 Log.Warning("Timed out while waiting for link");
@@ -337,7 +337,7 @@ namespace IxyCs.Ixgbe
 
             //No DCB or VT, just a single 128kb packet buffer
             SetReg(IxgbeDefs.RXPBSIZE(0), IxgbeDefs.RXPBSIZE_128KB);
-            for(uint i = 1; i < 8; i++)
+            for (uint i = 1; i < 8; i++)
                 SetReg(IxgbeDefs.RXPBSIZE(i), 0);
 
             //Always enable CRC offloading
@@ -348,7 +348,7 @@ namespace IxyCs.Ixgbe
             SetFlags(IxgbeDefs.FCTRL, IxgbeDefs.FCTRL_BAM);
 
             //Per queue config
-            for(uint i = 0; i < RxQueues.Length; i++)
+            for (uint i = 0; i < RxQueues.Length; i++)
             {
                 Log.Notice("Initializing rx queue {0}", i);
                 //Enable advanced rx descriptors
@@ -381,7 +381,7 @@ namespace IxyCs.Ixgbe
             //Section 4.6.7 - set some magic bits
             SetFlags(IxgbeDefs.CTRL_EXT, IxgbeDefs.CTRL_EXT_NS_DIS);
             //This flag probably refers to a broken feature: It's reserved and initialized as '1' but it must be '0'
-            for(uint i = 0; i < RxQueues.Length; i++)
+            for (uint i = 0; i < RxQueues.Length; i++)
                 ClearFlags(IxgbeDefs.DCA_RXCTRL(i), 1 << 12);
 
             //Start RX
@@ -396,7 +396,7 @@ namespace IxyCs.Ixgbe
 
             //Set default buffer size allocations (section 4.6.11.3.4)
             SetReg(IxgbeDefs.TXPBSIZE(0), IxgbeDefs.TXPBSIZE_40KB);
-            for(uint i = 1; i < 8; i++)
+            for (uint i = 1; i < 8; i++)
                 SetReg(IxgbeDefs.TXPBSIZE(i), 0);
 
             //Required when not using DCB/VTd
@@ -404,7 +404,7 @@ namespace IxyCs.Ixgbe
             ClearFlags(IxgbeDefs.RTTDCS, IxgbeDefs.RTTDCS_ARBDIS);
 
             //Per queue config for all queues
-            for(uint i = 0; i < TxQueues.Length; i++)
+            for (uint i = 0; i < TxQueues.Length; i++)
             {
                 Log.Notice("Initializing TX queue {0}", i);
 
@@ -432,9 +432,10 @@ namespace IxyCs.Ixgbe
                 }
                 SetReg(IxgbeDefs.TXDCTL(i), txdctl);
 
-                var queue = new IxgbeTxQueue(NumTxQueueEntries);
-                queue.Index = 0;
-                queue.DescriptorsAddr = dmaMem.VirtualAddress;
+                var queue = new IxgbeTxQueue(NumTxQueueEntries)
+                {
+                    Index = 0, DescriptorsAddr = dmaMem.VirtualAddress
+                };
                 TxQueues[i] = queue;
             }
             //Enable DMA
@@ -444,24 +445,24 @@ namespace IxyCs.Ixgbe
         private void StartRxQueue(int queueId)
         {
             Log.Notice("Starting RX queue {0}", queueId);
-            var queue = (IxgbeRxQueue)RxQueues[queueId];
+            var queue = RxQueues[queueId];
             //Mempool should be >= number of rx and tx descriptors
             uint mempoolSize = NumRxQueueEntries + NumTxQueueEntries;
             queue.Mempool = MemoryHelper.AllocateMempool(mempoolSize < 4096 ? 4096 : mempoolSize, 2048);
 
-            if((queue.EntriesCount & (queue.EntriesCount - 1)) != 0)
+            if ((queue.EntriesCount & (queue.EntriesCount - 1)) != 0)
             {
                 Log.Error("FATAL: number of queue entries must be a power of 2");
                 Environment.Exit(1);
             }
 
-            for(ushort ei = 0; ei < queue.EntriesCount; ei++)
+            for (ushort ei = 0; ei < queue.EntriesCount; ei++)
             {
                 var descrAddr = queue.GetDescriptorAddress(ei);
                 Log.Notice("Setting up descriptor at index #{0}", ei);
                 //Allocate packet buffer
                 var packetBuffer = queue.Mempool.GetPacketBufferFast();
-                if(packetBuffer.IsNull)
+                if (packetBuffer.IsNull)
                 {
                     Log.Error("Fatal: Could not allocate packet buffer");
                     Environment.Exit(1);
@@ -486,7 +487,7 @@ namespace IxyCs.Ixgbe
             Log.Notice("Starting TX queue {0}", queueId);
             var queue = (IxgbeTxQueue)TxQueues[queueId];
 
-             if((queue.EntriesCount & (queue.EntriesCount - 1)) != 0)
+            if ((queue.EntriesCount & (queue.EntriesCount - 1)) != 0)
             {
                 Log.Error("FATAL: number of queue entries must be a power of 2");
                 Environment.Exit(1);

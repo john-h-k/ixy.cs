@@ -10,19 +10,19 @@ namespace IxyCs.Memory
     /// </summary>
     public struct FixedStack
     {
-        private PacketBuffer[] _buffers;
+        private readonly PacketBuffer[] _buffers;
         private int _top;
-        private uint _size;
 
-        public int Count {get {return _top + 1; }}
-        public uint Capacity {get {return _size; }}
-        public int Free {get {return (int)(_size - _top - 1);}}
+        public int Count => _top + 1;
+        public uint Capacity { get; }
+
+        public int Free => (int)(Capacity - _top - 1);
 
         public FixedStack(uint size)
         {
-            _size = size;
+            Capacity = size;
             _top = -1;
-            _buffers = new PacketBuffer[_size];
+            _buffers = new PacketBuffer[Capacity];
         }
 
         public void Push(PacketBuffer pb)
@@ -34,5 +34,7 @@ namespace IxyCs.Memory
         {
             return _buffers[_top--];
         }
+
+        internal PacketBuffer[] GetUnderlyingArray() => _buffers;
     }
 }

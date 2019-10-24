@@ -3,7 +3,7 @@ using IxyCs.Memory;
 
 namespace IxyCs.Ixgbe
 {
-    public class IxgbeRxQueue : IxyQueue
+    public sealed class IxgbeRxQueue : IxyQueue
     {
         private const uint DescriptorSize = 16;
 
@@ -24,7 +24,7 @@ namespace IxyCs.Ixgbe
         public ulong GetDescriptorAddress(ushort i)
         {
             if(DescriptorsAddr == 0)
-                throw new InvalidOperationException("Trying to retreive descriptor from uninitialized TX queue");
+                 ThrowHelper.ThrowInvalidOperationException("Trying to retreive descriptor from uninitialized TX queue");
             return DescriptorsAddr + i * DescriptorSize;
         }
 

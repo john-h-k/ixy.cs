@@ -16,22 +16,20 @@ namespace IxyCs.Memory
         [DllImport("ixy_c.so")]
         public static extern ulong dma_memory(uint size, bool requireContiguous);
 
+        private static readonly BinaryReader Reader = new BinaryReader(File.Open("/proc/self/pagemap", FileMode.Open));
+        private static readonly ulong CachedPageSize = (ulong) Environment.SystemPageSize;
         public static ulong VirtToPhys(ulong virt)
         {
-            ulong pageSize = (ulong)Environment.SystemPageSize;
+            ulong pageSize = CachedPageSize;
             ulong physical = 0;
             //Read page from /proc/self/pagemap
             try
             {
-                using(BinaryReader reader = new BinaryReader(File.Open("/proc/self/pagemap", FileMode.Open)))
-                {
-                    ulong pos = virt / pageSize * sizeof(ulong);
-                    reader.BaseStream.Seek((long)pos,
-                    SeekOrigin.Begin);
-                    physical = reader.ReadUInt64();
-                }
+                ulong pos = virt / pageSize * sizeof(ulong);
+                Reader.BaseStream.Seek((long)pos, SeekOrigin.Begin);
+                physical = Reader.ReadUInt64();
             }
-            catch(Exception ex)
+            catch (Exception ex)
             {
                 Log.Error("FATAL: Could not translate virtual address {0:X} to physical address. - {1}", virt, ex.Message);
                 Environment.Exit(1);
@@ -47,7 +45,7 @@ namespace IxyCs.Memory
 
         public static Mempool AllocateMempool(uint numEntries, uint entrySize = 2048)
         {
-            if(HugePageSize % entrySize != 0)
+            if ((uint)HugePageSize % entrySize != 0)
             {
                 Log.Error("FATAL: Entry size must be a divisor of the huge page size {0}", HugePageSize);
                 Environment.Exit(1);

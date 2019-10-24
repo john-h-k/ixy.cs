@@ -1,7 +1,9 @@
 using System;
+using System.IO;
 using System.Linq;
 using System.IO.MemoryMappedFiles;
 using System.Threading;
+using IxyCs.Ixgbe;
 using IxyCs.Memory;
 using IxyCs.Pci;
 
@@ -11,8 +13,8 @@ namespace IxyCs
     {
         public string PciAddress{get; private set;}
         public string DriverName{get; protected set;}
-        public IxyQueue[] RxQueues {get; protected set;}
-        public IxyQueue[] TxQueues {get; protected set;}
+        public IxgbeRxQueue[] RxQueues {get; protected set;}
+        public IxgbeTxQueue[] TxQueues {get; protected set;}
 
         /// <summary>
         /// Gets / Sets the promisc status. This should only be set in the SetPromisc method
@@ -26,7 +28,7 @@ namespace IxyCs
         /// </summary>
         protected MemoryMappedFile PciMemMap
         {
-            get {return _pciMemMap; }
+            get => _pciMemMap;
             set
             {
                 _pciMemMap?.Dispose();
@@ -55,14 +57,11 @@ namespace IxyCs
                     deviceId = reader.Read16(2);
                     classId = reader.Read32(8) >> 24;
                 }
-            } catch(Exception ex) {
-                if(ex is System.IO.IOException || ex is InvalidOperationException)
-                {
+            } 
+            catch(Exception ex) when (ex is IOException || ex is InvalidOperationException)
+            {
                     Log.Error("FATAL: Could not read config file for device with given PCI address - {0}", ex.Message);
                     Environment.Exit(1);
-                }
-                else
-                    throw ex;
             }
 
             if(classId != 2)
