@@ -84,7 +84,7 @@ namespace IxyCs.Demo
                 var buffer = _mempool.GetPacketBuffer();
                 buffer.Size = (uint)PacketData.Length;
                 buffer.WriteData(0, PacketData);
-                var ipData = buffer.CopyData(14, 20);
+                var ipData = buffer.Data.Slice(14, 20);
                 buffer.WriteData(24, (short)CalcIpChecksum(ipData));
                 buffers[i] = buffer;
             }
@@ -94,7 +94,7 @@ namespace IxyCs.Demo
                 _mempool.FreeBuffer(buffer);
         }
 
-        private ushort CalcIpChecksum(byte[] data)
+        private ushort CalcIpChecksum(ReadOnlySpan<byte> data)
         {
             if(data.Length % 2 != 0)
             {
@@ -102,9 +102,9 @@ namespace IxyCs.Demo
                 Environment.Exit(1);
             }
             uint checksum = 0;
-            for(uint i = 0; i < data.Length / 2; i++)
+            for(int i = 0; i < data.Length / 2; i++)
             {
-                checksum += (uint)data[i];
+                checksum += data[i];
                 if(checksum > 0xFFFF)
                     checksum = (checksum & 0xFFFF) + 1; //16 bit one's complement
             }

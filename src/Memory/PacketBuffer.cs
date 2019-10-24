@@ -145,10 +145,14 @@ namespace IxyCs.Memory
             return CopyData(0, (uint)Size);
         }
 
+        public void CopyData(Span<byte> buffer)
+        {
+
+        }
+
         public unsafe byte[] CopyData(uint offset, uint length)
         {
             var cpy = new byte[length];
-            Marshal.Copy(new IntPtr((long)(_baseAddress + DataOffset + offset)), cpy, 0, cpy.Length);
 
             var source = new Span<byte>((void*)(_baseAddress + DataOffset + offset), (int)length);
             source.CopyTo(cpy);
